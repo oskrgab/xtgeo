@@ -1,4 +1,4 @@
-"""Public-API read-path checks for the xtgeo WASM wheel, run inside Pyodide.
+"""Public-API smoke checks for the xtgeo WASM wheel, run inside Pyodide.
 
 Each check is a function ``check_*(root)`` that asserts on externally
 observable behavior through xtgeo's *public* API -- grid/property dimensions,
@@ -6,20 +6,29 @@ known property means, masked-array shapes and index-space operations. Nothing
 is mocked and no build internals are touched: this is exactly what a browser
 consumer would observe, just executing inside the compiled WASM wheel.
 
-This is the pure-Python read path (resfo-backed EGRID/INIT/UNRST/GRDECL
-parsing); it makes no native calls, but it runs inside the wheel whose native
-modules (_cxtgeo, _internal) loaded at import time.
+Two layers of coverage:
 
-Later WASM slices extend coverage by appending a function to ``CHECKS`` -- e.g.
-the native geometry operations (``Grid.get_dz``, ``surf_slice_grd3d``). The
+* The pure-Python read path (resfo-backed EGRID/INIT/UNRST/GRDECL parsing). It
+  makes no native calls, but it runs inside the wheel whose native modules
+  (_cxtgeo, _internal) loaded at import time.
+* The native geometry operations (``Grid.get_dz``/``get_dx``/``get_dy``, the
+  ``surf_slice_grd3d`` 3D->2D sampler, ``get_bulk_volume`` /
+  ``get_phase_volumes`` volumetrics, and the ``get_ijk_from_points`` XY->IJK
+  lookup). These actually *execute* the cross-compiled _cxtgeo / _internal
+  code -- the operations resfo and pure Python cannot provide, and the reason
+  the native cross-compile exists at all.
+
+Later WASM slices extend coverage by appending a function to ``CHECKS``. The
 harness in ``smoke_test.mjs`` runs every registered check and reports pass/fail.
 
 Fixtures come from the equinor/xtgeo-testdata REEK dataset, mirroring the paths
-and expected values used by the native ``tests/test_grid3d`` suite.
+and expected values used by the native ``tests/test_grid3d`` and
+``tests/test_surface`` suites.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import numpy.ma as ma
 
 import xtgeo
@@ -29,6 +38,7 @@ EGRID = "3dgrids/reek/REEK.EGRID"
 INIT = "3dgrids/reek/REEK.INIT"
 UNRST = "3dgrids/reek/REEK.UNRST"
 GRDECL = "3dgrids/reek3/reek_sim.grdecl"  # ASCII Eclipse deck
+RTOP = "surfaces/reek/1/topreek_rota.gri"  # geo-referenced top-reek map
 
 REEK_DIMS = (40, 64, 14)
 
@@ -140,8 +150,155 @@ def check_masked_index_ops(root):
     }
 
 
+# --------------------------------------------------------------------------- #
+# Native geometry checks (WASM slice 3).
+#
+# Everything below actually *executes* the cross-compiled native modules
+# (_cxtgeo / _internal), not merely imports them: cell-edge metrics, the
+# C surf_slice_grd3d sampler, the C++ hexahedron volume integrator, and the
+# cell-search behind XY->IJK lookup. This is the slice that justifies the whole
+# native cross-compile -- these operations are exactly what resfo and the
+# pure-Python read path cannot provide. Assertions stay on observable
+# values/shapes through xtgeo's public API; reference numbers mirror the native
+# tests/test_grid3d and tests/test_surface suites on the same REEK fixtures.
+# --------------------------------------------------------------------------- #
+
+
+def check_cell_dimensions(root):
+    """Native get_dz/get_dx/get_dy return correctly shaped, positive metrics.
+
+    Cell thicknesses and lateral edge lengths come from the native geometry
+    code; a browser user expects physically sane (strictly positive) values
+    over the active cells, shaped like the grid.
+    """
+    grd = _egrid(root)
+
+    facts = {}
+    for label, prop in (
+        ("dz", grd.get_dz()),
+        ("dx", grd.get_dx()),
+        ("dy", grd.get_dy()),
+    ):
+        vals = prop.values
+        assert isinstance(vals, ma.MaskedArray), f"{label}: {type(vals)}"
+        assert vals.shape == REEK_DIMS, f"{label} shape {vals.shape}"
+        active = vals.compressed()
+        assert active.size > 0, f"{label}: no active cells"
+        assert np.all(active > 0.0), f"{label}: non-positive edge length"
+        facts[f"{label}_mean"] = float(active.mean())
+        facts[f"{label}_min"] = float(active.min())
+
+    # REEK cells are thin in Z (a few metres) and wide laterally (~150 m); use
+    # generous bounds so the check tracks "physically sane", not a regression
+    # pin on a specific build's averaging.
+    assert 0.5 < facts["dz_mean"] < 20.0, facts["dz_mean"]
+    assert 50.0 < facts["dx_mean"] < 500.0, facts["dx_mean"]
+    assert 50.0 < facts["dy_mean"] < 500.0, facts["dy_mean"]
+    return facts
+
+
+def check_surf_slice_grd3d(root):
+    """Sample a 3D property onto a geo-referenced RegularSurface (native path).
+
+    ``RegularSurface.slice_grid3d`` drives the native ``surf_slice_grd3d``
+    sampler: for every map node it finds the intersected cell in real-world
+    coordinates and reads the property there. We sample PORO at a constant
+    depth and assert the map keeps the surface geometry and is populated with
+    sane porosity, mirroring tests/test_surface/test_regular_surface_vs_grd3d.
+    """
+    grd = _egrid(root)
+    surf = xtgeo.surface_from_file(f"{root}/{RTOP}")
+    poro = xtgeo.gridproperty_from_file(
+        f"{root}/{INIT}", fformat="init", name="PORO", grid=grd
+    )
+
+    ncol, nrow = surf.ncol, surf.nrow
+    surf.values = 1700.0  # constant slicing depth (TVDSS) within the reservoir
+    surf.slice_grid3d(grd, poro)
+
+    assert (surf.ncol, surf.nrow) == (ncol, nrow), (surf.ncol, surf.nrow)
+    assert isinstance(surf.values, ma.MaskedArray), type(surf.values)
+
+    sampled = surf.values.count()  # nodes that actually hit a cell
+    assert sampled > 0, "no surface nodes intersected the grid"
+    assert sampled < surf.values.size, "expected nodes outside the grid footprint"
+
+    mean = float(surf.values.mean())
+    assert 0.0 < mean < 1.0, mean  # a porosity fraction
+    assert abs(mean - 0.1667) < 2.0e-2, mean  # known REEK PORO map mean
+    return {
+        "surface_shape": [ncol, nrow],
+        "sampled_nodes": int(sampled),
+        "PORO_map_mean": mean,
+    }
+
+
+def check_bulk_and_phase_volumes(root):
+    """Native volumetrics: get_bulk_volume and get_phase_volumes.
+
+    Bulk volume integrates each corner-point cell (the native C++ hexahedron
+    decomposition). The phase split (gas/oil/water about given contacts) must
+    partition that same bulk volume exactly -- a strong, build-independent
+    invariant -- so we assert positivity, shape, and gas+oil+water == bulk.
+    """
+    grd = _egrid(root)
+
+    bulk = grd.get_bulk_volume()
+    assert isinstance(bulk.values, ma.MaskedArray), type(bulk.values)
+    assert bulk.values.shape == REEK_DIMS, bulk.values.shape
+    bulk_active = bulk.values.compressed()
+    assert bulk_active.size > 0, "no active cells"
+    assert np.all(bulk_active > 0.0), "non-positive bulk volume"
+    bulk_total = float(bulk_active.sum())
+
+    # Contacts spanning the reservoir so all three phases are represented.
+    gas, oil, water = grd.get_phase_volumes(water_contact=1700.0, gas_contact=1600.0)
+    gsum = float(gas.values.sum())
+    osum = float(oil.values.sum())
+    wsum = float(water.values.sum())
+    for label, value in (("gas", gsum), ("oil", osum), ("water", wsum)):
+        assert value > 0.0, f"{label} volume not positive: {value}"
+
+    phase_total = gsum + osum + wsum
+    # The phase split is a partition of the bulk volume; relative match.
+    assert abs(phase_total - bulk_total) <= 1.0e-6 * bulk_total, (
+        phase_total,
+        bulk_total,
+    )
+    return {
+        "bulk_total": bulk_total,
+        "gas_total": gsum,
+        "oil_total": osum,
+        "water_total": wsum,
+    }
+
+
+def check_ijk_from_points(root):
+    """Native XY(Z)->IJK lookup maps a known cell centre back to that cell.
+
+    ``get_ijk_from_points`` runs the native cell search in real-world space.
+    We take the geo-referenced centre of a chosen active cell (via get_xyz) and
+    feed it back: a robust, fixture-independent round-trip that proves the
+    lookup honours the grid's actual coordinates rather than index arithmetic.
+    """
+    grd = _egrid(root)
+
+    target = (20, 30, 7)  # 1-based (I, J, K) of a known active cell
+    xp, yp, zp = grd.get_xyz(asmasked=False)
+    i, j, k = target
+    x = float(xp.values[i - 1, j - 1, k - 1])
+    y = float(yp.values[i - 1, j - 1, k - 1])
+    z = float(zp.values[i - 1, j - 1, k - 1])
+
+    points = xtgeo.Points([(x, y, z)])
+    df = grd.get_ijk_from_points(points)
+    found = (int(df["IX"][0]), int(df["JY"][0]), int(df["KZ"][0]))
+    assert found == target, f"{found} != {target}"
+    return {"point": [x, y, z], "target_ijk": list(target), "found_ijk": list(found)}
+
+
 # Registry of checks, run in order by the Node harness. Append here in later
-# slices to extend coverage (e.g. native geometry operations).
+# slices to extend coverage.
 CHECKS = [
     check_import,
     check_egrid_dimensions,
@@ -150,6 +307,11 @@ CHECKS = [
     check_unrst_multi_dates,
     check_grdecl,
     check_masked_index_ops,
+    # Native geometry operations (slice 3).
+    check_cell_dimensions,
+    check_surf_slice_grd3d,
+    check_bulk_and_phase_volumes,
+    check_ijk_from_points,
 ]
 
 

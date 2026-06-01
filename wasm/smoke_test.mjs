@@ -2,10 +2,12 @@
 //
 // Loads Pyodide, micropip.installs the freshly built emscripten wheel exactly
 // as a browser consumer would, mounts the REEK fixtures from
-// equinor/xtgeo-testdata, and runs the public-API read-path checks defined in
-// smoke_checks.py. Each check asserts on observable values/shapes through
-// xtgeo's public API -- nothing mocked, no build internals. Later slices add
-// assertions by appending to the CHECKS registry in smoke_checks.py.
+// equinor/xtgeo-testdata, and runs the public-API checks defined in
+// smoke_checks.py -- the pure-Python read path plus the native geometry
+// operations (get_dz, surf_slice_grd3d, volumetrics, XY->IJK). Each check
+// asserts on observable values/shapes through xtgeo's public API -- nothing
+// mocked, no build internals. Later slices add assertions by appending to the
+// CHECKS registry in smoke_checks.py.
 //
 // Usage: node smoke_test.mjs <path-to-wheel> <path-to-xtgeo-testdata>
 
@@ -56,7 +58,7 @@ pyodide.FS.mount(pyodide.FS.filesystems.NODEFS, { root: testdataDir }, "/testdat
 const checksSrc = readFileSync(join(here, "smoke_checks.py"), "utf8");
 pyodide.FS.writeFile("/tmp/smoke_checks.py", checksSrc);
 
-console.log("Running public-API read-path checks under Pyodide...\n");
+console.log("Running public-API read + native-geometry checks under Pyodide...\n");
 const resultsJson = await pyodide.runPythonAsync(`
 import sys, json
 sys.path.insert(0, "/tmp")
@@ -81,7 +83,7 @@ for (const r of results) {
 console.log("");
 const total = results.length;
 if (failed) {
-  console.error(`FAIL: ${failed}/${total} read-path checks failed under Pyodide`);
+  console.error(`FAIL: ${failed}/${total} checks failed under Pyodide`);
   process.exit(1);
 }
-console.log(`PASS: all ${total} read-path checks passed under Pyodide`);
+console.log(`PASS: all ${total} checks passed under Pyodide`);

@@ -51,12 +51,21 @@ shallow clone under `wasm/.xtgeo-testdata/`.
   `pyodide build`.
 - [`smoke_test.mjs`](smoke_test.mjs) — `micropip.install`s the wheel exactly as
   a browser consumer would, mounts the REEK fixtures, and runs the public-API
-  read-path checks, reporting pass/fail per check.
+  checks, reporting pass/fail per check.
 - [`smoke_checks.py`](smoke_checks.py) — the check registry that runs inside
-  Pyodide: `import xtgeo` + both native modules, EGRID → `Grid` dimensions,
-  static (INIT) and recurrent dated (UNRST) properties via
-  `gridproperty_from_file` / `gridproperties_from_file`, a GRDECL read, and the
-  masked `(ncol, nrow, nlay)` `values` array with a layer slice and a
-  K-reduction. Each check asserts on observable values/shapes through xtgeo's
-  public API — nothing mocked. Later slices extend coverage (e.g. native
-  geometry ops) by appending to the `CHECKS` list.
+  Pyodide. Two layers:
+  - **Read path** (pure Python, resfo-backed): `import xtgeo` + both native
+    modules, EGRID → `Grid` dimensions, static (INIT) and recurrent dated
+    (UNRST) properties via `gridproperty_from_file` / `gridproperties_from_file`,
+    a GRDECL read, and the masked `(ncol, nrow, nlay)` `values` array with a
+    layer slice and a K-reduction.
+  - **Native geometry** (executes `_cxtgeo` / `_internal`): cell dimensions
+    `get_dz`/`get_dx`/`get_dy`, a geo-referenced 3D→2D map via
+    `RegularSurface.slice_grid3d` (the native `surf_slice_grd3d` sampler),
+    volumetrics `get_bulk_volume` / `get_phase_volumes` (the phase split must
+    partition the bulk volume), and an XY→IJK round-trip via
+    `get_ijk_from_points`. These prove the compiled modules actually *run*, not
+    merely import — the operations resfo cannot provide.
+
+  Each check asserts on observable values/shapes through xtgeo's public API —
+  nothing mocked. Later slices extend coverage by appending to the `CHECKS` list.
