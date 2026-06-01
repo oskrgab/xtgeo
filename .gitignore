@@ -84,3 +84,7 @@ pip-wheel-metadata/
 tmp/
 .DS_Store
 compile_commands.json
+
+# WASM/Pyodide smoke-test runtime (installed by wasm/run_smoke_test.sh)
+wasm/node_modules/
+wasm/package-lock.json

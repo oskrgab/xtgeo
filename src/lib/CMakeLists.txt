@@ -153,6 +153,21 @@ target_link_libraries(${SWIG_TARGET} PRIVATE xtgeo ${Python_LIBRARIES}
 if(WIN32)
   set_property(TARGET ${SWIG_TARGET} PROPERTY SUFFIX ".${Python_SOABI}.pyd")
   set_property(TARGET _internal PROPERTY SUFFIX ".${Python_SOABI}.pyd")
+elseif(EMSCRIPTEN)
+  # FindPython leaves Python_SOABI empty for the Emscripten cross target, which
+  # would yield an unimportable "_cxtgeo..so". Recover the real extension suffix
+  # the way scikit-build-core/pybind11 do: SKBUILD_SOABI (set by the backend),
+  # with the SETUPTOOLS_EXT_SUFFIX env var that pyodide-build exports as a
+  # fallback. (_internal is handled correctly by pybind11_add_module already.)
+  if(DEFINED SKBUILD_SOABI AND NOT SKBUILD_SOABI STREQUAL "")
+    set_property(TARGET ${SWIG_TARGET}
+                 PROPERTY SUFFIX ".${SKBUILD_SOABI}${CMAKE_SHARED_MODULE_SUFFIX}")
+  else()
+    set_property(TARGET ${SWIG_TARGET} PROPERTY SUFFIX "$ENV{SETUPTOOLS_EXT_SUFFIX}")
+  endif()
+  get_target_property(_swig_suffix ${SWIG_TARGET} SUFFIX)
+  message(STATUS "Emscripten SWIG module suffix: ${_swig_suffix} "
+                 "(SKBUILD_SOABI='${SKBUILD_SOABI}')")
 else()
   set_property(TARGET ${SWIG_TARGET}
                PROPERTY SUFFIX ".${Python_SOABI}${CMAKE_SHARED_MODULE_SUFFIX}")

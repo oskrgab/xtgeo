@@ -5,7 +5,6 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING, Any, Literal
 
-import gstools as gs
 import numpy as np
 import numpy.ma as ma
 import scipy.interpolate
@@ -14,9 +13,14 @@ from numpy.typing import NDArray
 from scipy.spatial import cKDTree
 
 import xtgeo._internal as _internal
+from xtgeo.common._optional_deps import optional_import
 from xtgeo.common.constants import UNDEF, UNDEF_LIMIT
 from xtgeo.common.log import null_logger
 from xtgeo.xyz.polygons import Polygons
+
+# gstools is excluded from the WASM/Pyodide build; defer the failure until a
+# gridding feature that needs it is actually called.
+gs = optional_import("gstools")
 
 if TYPE_CHECKING:
     from collections.abc import Callable

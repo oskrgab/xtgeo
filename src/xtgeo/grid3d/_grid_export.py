@@ -8,14 +8,18 @@ from copy import deepcopy
 from typing import IO, TYPE_CHECKING, Any, Literal
 
 import h5py
-import hdf5plugin
 import roffio
 
 from xtgeo.common import null_logger
+from xtgeo.common._optional_deps import optional_import
 
 from ._egrid import EGrid
 from ._grdecl_grid import GrdeclGrid
 from ._roff_grid import RoffGrid
+
+# hdf5plugin is excluded from the WASM/Pyodide build; defer the failure until
+# the HDF5 export path that needs it is actually called.
+hdf5plugin = optional_import("hdf5plugin")
 
 logger = null_logger(__name__)
 

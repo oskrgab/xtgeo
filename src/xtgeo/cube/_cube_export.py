@@ -9,10 +9,14 @@ import struct
 from typing import TYPE_CHECKING
 
 import numpy as np
-import segyio
 
 from xtgeo import _cxtgeo
 from xtgeo.common import XTGeoDialog, null_logger
+from xtgeo.common._optional_deps import optional_import
+
+# segyio is excluded from the WASM/Pyodide build; defer the failure until SEGY
+# export is actually called.
+segyio = optional_import("segyio")
 
 logger = null_logger(__name__)
 xtg = XTGeoDialog()

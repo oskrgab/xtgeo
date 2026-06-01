@@ -37,11 +37,11 @@ from typing import TYPE_CHECKING, Literal
 from warnings import warn
 
 import numpy as np
-import segyio
 
 import xtgeo.common.sys as xsys
 from xtgeo import _cxtgeo
 from xtgeo.common import calc
+from xtgeo.common._optional_deps import optional_import
 from xtgeo.common.constants import UNDEF
 from xtgeo.common.log import null_logger
 from xtgeo.common.xtgeo_dialog import XTGeoDialog
@@ -49,6 +49,10 @@ from xtgeo.metadata.metadata import MetaDataRegularCube
 
 if TYPE_CHECKING:
     from xtgeo.io._file import FileWrapper
+
+# segyio is excluded from the WASM/Pyodide build; defer the failure until SEGY
+# import is actually called.
+segyio = optional_import("segyio")
 
 xtg = XTGeoDialog()
 logger = null_logger(__name__)

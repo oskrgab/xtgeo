@@ -8,12 +8,16 @@ import struct
 from typing import TYPE_CHECKING
 
 import h5py
-import hdf5plugin
 import numpy as np
 
 from xtgeo import _cxtgeo
+from xtgeo.common._optional_deps import optional_import
 from xtgeo.common.constants import UNDEF_MAP_IRAPA, UNDEF_MAP_IRAPB
 from xtgeo.common.log import null_logger
+
+# hdf5plugin is excluded from the WASM/Pyodide build; defer the failure until
+# the HDF5 export path that needs it is actually called.
+hdf5plugin = optional_import("hdf5plugin")
 
 if TYPE_CHECKING:
     from xtgeo.io._file import FileWrapper
