@@ -21,9 +21,14 @@ ABI-locked to one Pyodide release — consumers must run that exact version.
 
 ```bash
 make wasm          # build the wheel in the pinned Docker image -> dist/wasm/
-make wasm-smoke    # load it in Node + Pyodide and assert `import xtgeo`
+make wasm-smoke    # load it in Node + Pyodide and run the read-path checks
 make wasm-all      # both
 ```
+
+`make wasm-smoke` needs the [`equinor/xtgeo-testdata`](https://github.com/equinor/xtgeo-testdata)
+REEK fixtures. It reuses a sibling `../xtgeo-testdata` checkout if present (the
+cibuildwheel convention), honours `XTGEO_TESTDATA_PATH`, or otherwise caches a
+shallow clone under `wasm/.xtgeo-testdata/`.
 
 `make wasm` produces `dist/wasm/xtgeo-<ver>-cp313-cp313-pyemscripten_2025_0_wasm32.whl`.
 
@@ -45,4 +50,13 @@ make wasm-all      # both
 - [`build.sh`](build.sh) — in-container: applies the profile and runs
   `pyodide build`.
 - [`smoke_test.mjs`](smoke_test.mjs) — `micropip.install`s the wheel exactly as
-  a browser consumer would and asserts both native modules load.
+  a browser consumer would, mounts the REEK fixtures, and runs the public-API
+  read-path checks, reporting pass/fail per check.
+- [`smoke_checks.py`](smoke_checks.py) — the check registry that runs inside
+  Pyodide: `import xtgeo` + both native modules, EGRID → `Grid` dimensions,
+  static (INIT) and recurrent dated (UNRST) properties via
+  `gridproperty_from_file` / `gridproperties_from_file`, a GRDECL read, and the
+  masked `(ncol, nrow, nlay)` `values` array with a layer slice and a
+  K-reduction. Each check asserts on observable values/shapes through xtgeo's
+  public API — nothing mocked. Later slices extend coverage (e.g. native
+  geometry ops) by appending to the `CHECKS` list.
