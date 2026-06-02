@@ -38,6 +38,22 @@ shallow clone under `wasm/.xtgeo-testdata/`.
 > tag, which is the form `micropip` accepts for Pyodide 0.29.4. Both are the
 > same Emscripten/wasm32 artifact.
 
+## Continuous integration
+
+[`.github/workflows/wasm.yml`](../.github/workflows/wasm.yml) runs this exact
+flow in CI — `make wasm` then `make wasm-smoke`, using the same pinned Docker
+image so CI == local. It is independent of `publish.yml` (the cibuildwheel PyPI
+matrix).
+
+- **Pull requests** touching native/build paths (`src/lib/**`, `CMakeLists.txt`,
+  `pyproject.toml`, `wasm/**`, `Makefile`, the workflow itself) build the wheel
+  and run the full Node + Pyodide smoke suite. A failing check fails the job; no
+  artifact is published.
+- **`workflow_dispatch`** refreshes a rolling `wasm-latest` pre-release with the
+  freshly built wheel attached.
+- **`wasm-v*` tags** publish a GitHub Release under that tag with the wheel
+  attached.
+
 ## How it works
 
 - [`Dockerfile`](Dockerfile) — pinned toolchain image (CPython + emsdk +
