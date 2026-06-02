@@ -124,7 +124,7 @@ extern "C"
 
     /* Fortran order counting (column major order: i loops fastest, then j, then k)
      */
-    inline long
+    static inline long
     x_ijk2ib(long i, long j, long k, long nx, long ny, long nz, int ia_start)
     {
 
@@ -145,7 +145,7 @@ extern "C"
     }
 
     /* C order counting (row major order: k loops fastest, then j, then i) */
-    inline long
+    static inline long
     x_ijk2ic(long i, long j, long k, long nx, long ny, long nz, int ia_start)
     {
 

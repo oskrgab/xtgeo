@@ -50,7 +50,7 @@ typedef struct PlanarMap
 /**
  * Gives the planar map of the ith coordinate line.
  */
-inline int
+static inline int
 pm_from_corner_line(const double *const coordsv, const size_t i, PlanarMap *const pm)
 {
 
@@ -80,7 +80,7 @@ pm_from_corner_line(const double *const coordsv, const size_t i, PlanarMap *cons
  * the x,y coordinate of the corresponding corner line at
  * the given height.
  */
-inline int
+static inline int
 pm_evaluate(const PlanarMap *const pm, const double z, double *x, double *y)
 {
     double diff_z = z - pm->bot_z;

@@ -78,6 +78,19 @@ monotonic_seconds()
     return ((double)time.tv_sec) + ((double)time.tv_nsec / (NANOS_PER_SECF));
 }
 
+#elif defined(__EMSCRIPTEN__)
+
+/* Emscripten/WASM: no __linux__, but clock_gettime(CLOCK_MONOTONIC) works. */
+#include <time.h>
+
+double
+monotonic_seconds()
+{
+    struct timespec time;
+    clock_gettime(CLOCK_MONOTONIC, &time);
+    return ((double)time.tv_sec) + ((double)time.tv_nsec / (NANOS_PER_SECF));
+}
+
 #elif __linux__
 
 /* cf #346 */

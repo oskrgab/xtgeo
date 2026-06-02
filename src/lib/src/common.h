@@ -157,7 +157,7 @@ extern "C"
      * Byte swapping test
      *-----------------------------------------------------------------------------
      */
-    inline int x_swap_check()
+    static inline int x_swap_check()
     {
 
         long num = 1;
