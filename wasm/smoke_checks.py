@@ -6,7 +6,7 @@ known property means, masked-array shapes and index-space operations. Nothing
 is mocked and no build internals are touched: this is exactly what a browser
 consumer would observe, just executing inside the compiled WASM wheel.
 
-Two layers of coverage:
+Three layers of coverage:
 
 * The pure-Python read path (resfo-backed EGRID/INIT/UNRST/GRDECL parsing). It
   makes no native calls, but it runs inside the wheel whose native modules
@@ -17,6 +17,10 @@ Two layers of coverage:
   lookup). These actually *execute* the cross-compiled _cxtgeo / _internal
   code -- the operations resfo and pure Python cannot provide, and the reason
   the native cross-compile exists at all.
+* The ROFF read + property write-back round-trip (roffio-backed): read a ROFF
+  grid/property, then modify, create, and persist properties to the in-memory
+  emfs (ROFF and GRDECL) and reload them, asserting the values survive. This
+  closes the read/write loop a browser consumer needs to edit data and save it.
 
 Later WASM slices extend coverage by appending a function to ``CHECKS``. The
 harness in ``smoke_test.mjs`` runs every registered check and reports pass/fail.
@@ -27,6 +31,9 @@ and expected values used by the native ``tests/test_grid3d`` and
 """
 
 from __future__ import annotations
+
+import os
+import tempfile
 
 import numpy as np
 import numpy.ma as ma
@@ -39,6 +46,8 @@ INIT = "3dgrids/reek/REEK.INIT"
 UNRST = "3dgrids/reek/REEK.UNRST"
 GRDECL = "3dgrids/reek3/reek_sim.grdecl"  # ASCII Eclipse deck
 RTOP = "surfaces/reek/1/topreek_rota.gri"  # geo-referenced top-reek map
+ROFF_GRID = "3dgrids/reek/reek_sim_grid.roff"  # binary ROFF corner-point grid
+ROFF_PORO = "3dgrids/reek/reek_sim_poro.roff"  # binary ROFF PORO property
 
 REEK_DIMS = (40, 64, 14)
 
@@ -46,6 +55,11 @@ REEK_DIMS = (40, 64, 14)
 def _egrid(root):
     """Read the REEK EGRID into a Grid (reused by several checks)."""
     return xtgeo.grid_from_file(f"{root}/{EGRID}", fformat="egrid")
+
+
+def _roff_grid(root):
+    """Read the REEK binary ROFF grid into a Grid (reused by the ROFF checks)."""
+    return xtgeo.grid_from_file(f"{root}/{ROFF_GRID}", fformat="roff")
 
 
 def check_import(root):
@@ -147,6 +161,127 @@ def check_masked_index_ops(root):
         "values_shape": list(vals.shape),
         "layer_slice_shape": list(top.shape),
         "kmean_shape": list(kmean.shape),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# ROFF read + property write-back round-trip (WASM slice 4).
+#
+# ROFF is xtgeo's native binary container, parsed by the pure-Python ``roffio``
+# package (no native calls), and the write path is what lets a browser user
+# *persist* a property they created or modified. These checks close the
+# read/write loop entirely inside the Emscripten filesystem: read a ROFF grid
+# and property, modify and write it back (ROFF and GRDECL), and reload to prove
+# the values survive the round-trip -- including a property created from scratch
+# that was never on disk. Writes target ``/tmp`` in the in-memory emfs, exactly
+# where a browser consumer would stage a download. Reference values mirror the
+# native tests/test_grid3d suite on the same REEK fixtures.
+# --------------------------------------------------------------------------- #
+
+
+def check_roff_read(root):
+    """Binary ROFF grid + property read into xtgeo objects under Pyodide.
+
+    The roffio-backed read path is pure Python; this proves the dependency is
+    bundled in the wheel and that a ROFF grid/property opens with the expected
+    dimensions and known PORO mean, mirroring the EGRID/INIT coverage above.
+    """
+    grd = _roff_grid(root)
+    assert grd.dimensions == REEK_DIMS, grd.dimensions
+    assert grd.nactive == 35838, grd.nactive
+    assert grd.ntotal == 35840, grd.ntotal
+
+    poro = xtgeo.gridproperty_from_file(
+        f"{root}/{ROFF_PORO}", fformat="roff", name="PORO", grid=grd
+    )
+    assert poro.dimensions == REEK_DIMS, poro.dimensions
+    assert isinstance(poro.values, ma.MaskedArray), type(poro.values)
+    mean = float(poro.values.mean())
+    assert abs(mean - 0.1677) < 1.0e-3, mean
+    return {"dimensions": list(grd.dimensions), "nactive": grd.nactive, "PORO_mean": mean}
+
+
+def check_roff_property_roundtrip(root):
+    """Modify a property, write it back (ROFF + GRDECL), reload, assert values.
+
+    This closes the read/write loop in the browser: a user who edits a property
+    must be able to *persist* it and get the same values back. We bump every
+    PORO cell by a constant, write to the in-memory emfs (``/tmp``, where a
+    browser consumer would stage a download), reload through the public API, and
+    assert the active cells round-trip -- for both the native binary ROFF
+    container and the ASCII Eclipse GRDECL deck.
+    """
+    grd = _roff_grid(root)
+    poro = xtgeo.gridproperty_from_file(
+        f"{root}/{ROFF_PORO}", fformat="roff", name="PORO", grid=grd
+    )
+
+    bump = 0.05
+    poro.values = poro.values + bump
+    expected = poro.values.compressed()
+    outdir = tempfile.mkdtemp()
+
+    # Binary ROFF round-trip: values must match to full float precision.
+    roff_path = os.path.join(outdir, "poro_mod.roff")
+    poro.to_file(roff_path, fformat="roff", name="PORO")
+    back_roff = xtgeo.gridproperty_from_file(
+        roff_path, fformat="roff", name="PORO", grid=grd
+    )
+    assert back_roff.dimensions == REEK_DIMS, back_roff.dimensions
+    assert np.allclose(back_roff.values.compressed(), expected), "ROFF values drifted"
+    roff_mean = float(back_roff.values.mean())
+
+    # ASCII GRDECL round-trip: same values within ASCII formatting tolerance.
+    grdecl_path = os.path.join(outdir, "poro_mod.grdecl")
+    poro.to_file(grdecl_path, fformat="grdecl", name="PORO")
+    back_grdecl = xtgeo.gridproperty_from_file(
+        grdecl_path, fformat="grdecl", name="PORO", grid=grd
+    )
+    assert np.allclose(
+        back_grdecl.values.compressed(), expected, atol=1.0e-4
+    ), "GRDECL values drifted"
+
+    return {
+        "bump": bump,
+        "ROFF_reloaded_mean": roff_mean,
+        "GRDECL_reloaded_mean": float(back_grdecl.values.mean()),
+    }
+
+
+def check_created_property_roundtrip(root):
+    """Create a property from scratch (never on disk), write it, reload, assert.
+
+    The browser use case is not only editing existing data but *authoring* new
+    properties. We build a GridProperty on the ROFF grid with a known constant,
+    write it to the emfs as ROFF, reload through the public API, and assert the
+    dimensions and the synthesized values survive -- proving creation + persist
+    works end to end inside Pyodide.
+    """
+    grd = _roff_grid(root)
+    ncol, nrow, nlay = grd.dimensions
+
+    fill = 0.25
+    values = np.zeros((ncol, nrow, nlay), dtype=np.float64) + fill
+    newprop = xtgeo.GridProperty(
+        ncol=ncol, nrow=nrow, nlay=nlay, values=values, name="MYPROP", grid=grd
+    )
+
+    outdir = tempfile.mkdtemp()
+    path = os.path.join(outdir, "myprop.roff")
+    newprop.to_file(path, fformat="roff", name="MYPROP")
+
+    back = xtgeo.gridproperty_from_file(path, fformat="roff", name="MYPROP", grid=grd)
+    assert back.dimensions == REEK_DIMS, back.dimensions
+    assert back.name == "MYPROP", back.name
+    reloaded = back.values.compressed()
+    assert reloaded.size > 0, "no active cells reloaded"
+    assert np.allclose(reloaded, fill), "created values drifted on round-trip"
+
+    return {
+        "name": back.name,
+        "dimensions": list(back.dimensions),
+        "fill": fill,
+        "reloaded_mean": float(back.values.mean()),
     }
 
 
@@ -312,6 +447,10 @@ CHECKS = [
     check_surf_slice_grd3d,
     check_bulk_and_phase_volumes,
     check_ijk_from_points,
+    # ROFF read + property write-back round-trip (slice 4).
+    check_roff_read,
+    check_roff_property_roundtrip,
+    check_created_property_roundtrip,
 ]
 
 

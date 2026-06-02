@@ -66,6 +66,11 @@ shallow clone under `wasm/.xtgeo-testdata/`.
     partition the bulk volume), and an XY→IJK round-trip via
     `get_ijk_from_points`. These prove the compiled modules actually *run*, not
     merely import — the operations resfo cannot provide.
+  - **ROFF read + write-back round-trip** (roffio, pure Python): read a binary
+    ROFF grid/property, then modify an existing property, author a brand-new
+    one, and write both back to the in-memory emfs as ROFF and GRDECL, reloading
+    to assert the values survive. This closes the read/write loop a browser
+    consumer needs to persist edits.
 
   Each check asserts on observable values/shapes through xtgeo's public API —
   nothing mocked. Later slices extend coverage by appending to the `CHECKS` list.
