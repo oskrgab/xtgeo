@@ -55,6 +55,15 @@ instructions and tips for how to do so in the
 :doc:`Contributing document <contributing>`.
 
 
+In the browser (WASM / Pyodide)
+-------------------------------
+
+This fork ships an Emscripten/WebAssembly wheel that loads in Pyodide, so you
+can use XTGeo in the browser with no native install. See
+:doc:`XTGeo in the browser <wasm>` for the ``micropip`` install line, the pinned
+Pyodide version you must match, a usage example, and the documented limitations.
+
+
 Within Equinor
 --------------
 

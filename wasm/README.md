@@ -5,6 +5,11 @@ Emscripten `wasm32` wheel that loads in [Pyodide](https://pyodide.org). See
 [`docs/adr/0001-wasm-pyodide-distribution.md`](../docs/adr/0001-wasm-pyodide-distribution.md)
 for the decision record.
 
+This README is for **maintainers** building/releasing the wheel. **Consumers**
+(installing it in a browser/Node Pyodide session) want
+[`docs/wasm.rst`](../docs/wasm.rst) — the `micropip` install line, the pinned
+Pyodide version to match, a usage example, and the documented limitations.
+
 ## Versions (single source of truth)
 
 All pinned versions live in [`versions.env`](versions.env). The wheel is
