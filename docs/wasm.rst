@@ -176,12 +176,26 @@ If you need any of these, run XTGeo in a normal (native) Python environment;
 they are present in the PyPI wheels.
 
 
-SUMMARY data is out of scope
-----------------------------
+SUMMARY data: use resfo directly
+---------------------------------
 
 Eclipse **SUMMARY** files (``SMSPEC`` / ``UNSMRY`` — time-series vectors like
-``FOPR``, ``WBHP``) are not part of this distribution. XTGeo does not read them
-at all, on any platform. For summary vectors in the browser, use
-`resfo <https://github.com/equinor/resfo>`_ directly — it is pure Python and
-runs in Pyodide today, returning the raw ``(keyword, array)`` data you can build
-your own time series from.
+``FOPR``, ``WBHP``) are outside *XTGeo's* scope — and this is **not** a WASM
+limitation. XTGeo has no summary-reading API on any platform; it has never read
+these files.
+
+The reader for them is `resfo <https://github.com/equinor/resfo>`_, which is a
+**core XTGeo dependency** (it backs the pure-Python EGRID/INIT/UNRST read path).
+The WASM profile does *not* strip it, so installing the wheel pulls ``resfo`` in
+automatically — there is nothing extra to install:
+
+.. code-block:: python
+
+   import resfo  # already present alongside xtgeo in the wheel
+
+   for kw, arr in resfo.read("REEK.UNSMRY"):
+       ...  # (keyword, array) tuples — build your own time series
+
+So in the browser you read grids/properties through ``xtgeo`` and summary
+vectors through ``resfo`` — both running in the same Pyodide session, from the
+one ``micropip.install``.
