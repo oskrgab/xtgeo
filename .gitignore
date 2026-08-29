@@ -89,3 +89,7 @@ compile_commands.json
 wasm/node_modules/
 wasm/package-lock.json
 wasm/.xtgeo-testdata/
+
+# Claude Code local state (machine-specific)
+.claude/settings.local.json
+.claude/*.lock
