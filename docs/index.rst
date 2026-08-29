@@ -20,6 +20,7 @@ The repository is hosted on `GitHub <https://github.com/equinor/xtgeo>`_.
    :caption: About
 
    installation
+   wasm
    contributing
    release_notes
 
